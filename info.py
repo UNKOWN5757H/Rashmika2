@@ -253,7 +253,7 @@ BIND_ADDRESS = environ.get("WEB_SERVER_BIND_ADDRESS", "0.0.0.0")
 if environ.get("FQDN"):
     FQDN = environ.get("FQDN")
 elif ON_HEROKU and APP_NAME:
-    FQDN = f"{APP_NAME}.koyeb.com"
+    FQDN = f"{APP_NAME}.heroku.com"
 else:
     FQDN = "localhost"  # safer fallback than 0.0.0.0
 
