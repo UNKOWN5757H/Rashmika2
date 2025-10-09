@@ -1,4 +1,3 @@
-
 import asyncio
 import glob
 import importlib
@@ -47,6 +46,7 @@ files = glob.glob(ppath)
 
 DELETE_DELAY = 4 * 60 * 60  # 4 hours in seconds
 
+
 @dreamxbotz.on_message(filters.private & ~filters.service & ~filters.bot)
 async def auto_delete_pm_text(client, message):
     """
@@ -62,9 +62,13 @@ async def auto_delete_pm_text(client, message):
         # Try deleting the message safely
         try:
             await message.delete()
-            logging.info(f"Deleted PM message from {message.from_user.id} after 4 hours.")
+            logging.info(
+                f"Deleted PM message from {message.from_user.id} after 4 hours."
+            )
         except Exception as e:
-            logging.warning(f"Failed to delete message from {message.from_user.id}: {e}")
+            logging.warning(
+                f"Failed to delete message from {message.from_user.id}: {e}"
+            )
 
     except Exception as e:
         logging.error(f"Error in auto-delete task: {e}")
@@ -73,6 +77,7 @@ async def auto_delete_pm_text(client, message):
 # ----------------------------
 # MAIN BOT START FUNCTION
 # ----------------------------
+
 
 async def dreamxbotz_start():
     print("\n\nInitalizing DreamxBotz")
@@ -103,7 +108,9 @@ async def dreamxbotz_start():
 
     if MULTIPLE_DB:
         await Media2.ensure_indexes()
-        print("Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full")
+        print(
+            "Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full"
+        )
     else:
         print("Single DB Mode On ! Files Will Be Save In First Database")
 
@@ -116,7 +123,9 @@ async def dreamxbotz_start():
 
     dreamxbotz.loop.create_task(check_expired_premium(dreamxbotz))
 
-    logging.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+    logging.info(
+        f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+    )
     logging.info(LOG_STR)
     logging.info(script.LOGO)
 
@@ -127,7 +136,7 @@ async def dreamxbotz_start():
 
     await dreamxbotz.send_message(
         chat_id=LOG_CHANNEL,
-        text=script.RESTART_TXT.format(temp.B_LINK, today, current_time)
+        text=script.RESTART_TXT.format(temp.B_LINK, today, current_time),
     )
 
     app = web.AppRunner(await web_server())
