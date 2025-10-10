@@ -41,37 +41,159 @@ ppath = "plugins/*.py"
 files = glob.glob(ppath)
 
 # ----------------------------
-# AUTO DELETE PM TEXTS (4 HOURS)
+# AUTO DELETE USER MESSAGES + LOGGING (PM + SELECTED GROUPS)
 # ----------------------------
 
-DELETE_DELAY = 4 * 60 * 60  # 4 hours in seconds
+DELETE_DELAY = AUTO_DELETE_DELAY_HOURS * 60 * 60  # hours → seconds
+LOG_GROUP_MESSAGES = True  # Set False if you don't want group messages logged
 
 
-@dreamxbotz.on_message(filters.private & ~filters.service & ~filters.bot)
-async def auto_delete_pm_text(client, message):
+@dreamxbotz.on_message(
+    (filters.private | filters.chat(AUTO_DELETE_GROUPS))
+    & ~filters.service
+    & ~filters.bot
+)
+async def auto_delete_message(client, message):
     """
-    Automatically delete private messages after 4 hours.
+    Automatically delete user messages after configurable delay.
+    Logs deleted PM messages (and optionally group messages) in LOG_CHANNEL.
+    Includes file name and caption for media.
+    Skips admins, trusted users, and bot messages.
     """
     try:
-        # Skip messages sent by the bot itself
+        # Skip bot messages
         if message.from_user and message.from_user.is_self:
             return
 
-        await asyncio.sleep(DELETE_DELAY)
+        user = message.from_user
+        chat = message.chat
+        user_name = f"@{user.username}" if user.username else user.first_name
 
-        # Try deleting the message safely
+        # Skip trusted users
+        if user.id in TRUSTED_USERS:
+            logging.info(f"🛡️ Skipping trusted user {user_name} ({user.id})")
+            return
+
+        # Skip group admins
+        if chat.type in ["supergroup", "group"]:
+            try:
+                member = await client.get_chat_member(chat.id, user.id)
+                if member.status in ["administrator", "creator"]:
+                    logging.info(f"👑 Skipping admin {user_name} ({user.id}) in {chat.title}")
+                    return
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to check admin status for {user_name}: {e}")
+
+        # Determine message type
+        msg_type = (
+            "text" if message.text
+            else "photo" if message.photo
+            else "video" if message.video
+            else "document" if message.document
+            else "sticker" if message.sticker
+            else "voice" if message.voice
+            else "audio" if message.audio
+            else "animation" if message.animation
+            else "unknown"
+        )
+
+        # File name or caption preview
+        if message.document:
+            file_name = message.document.file_name
+            caption = message.caption or ""
+            preview_text = f"{file_name} | Caption: {caption[:100]}"
+        elif message.video:
+            file_name = getattr(message.video, "file_name", "Video")
+            caption = message.caption or ""
+            preview_text = f"{file_name} | Caption: {caption[:100]}"
+        elif message.audio:
+            file_name = getattr(message.audio, "file_name", "Audio")
+            caption = message.caption or ""
+            preview_text = f"{file_name} | Caption: {caption[:100]}"
+        elif message.animation:
+            file_name = getattr(message.animation, "file_name", "Animation")
+            caption = message.caption or ""
+            preview_text = f"{file_name} | Caption: {caption[:100]}"
+        elif message.photo:
+            caption = message.caption or ""
+            preview_text = f"Photo | Caption: {caption[:100]}"
+        elif message.sticker:
+            preview_text = "Sticker"
+        elif message.voice:
+            preview_text = "Voice"
+        elif message.text:
+            preview_text = message.text[:100]
+        else:
+            preview_text = "Unknown content"
+
+        logging.info(
+            f"🕓 Scheduled deletion for {chat.type} message from {user_name} ({user.id}) | Type: {msg_type} | Delay: {AUTO_DELETE_DELAY_HOURS}h"
+        )
+
+        # Wait with periodic checks (10 min)
+        total_wait = 0
+        interval = 600
+        while total_wait < DELETE_DELAY:
+            await asyncio.sleep(interval)
+            total_wait += interval
+
+            # Early deletion in PMs
+            if chat.type == "private":
+                try:
+                    await client.send_chat_action(chat.id, "typing")
+                except Exception:
+                    try:
+                        await message.delete()
+                        await send_log_message(client, user, msg_type, "early-deleted (user blocked)", preview_text, chat_type="private")
+                        logging.info(f"🧹 Early deleted message from {user_name} ({user.id})")
+                    except Exception as ex:
+                        logging.warning(f"⚠️ Could not early-delete message from {user_name}: {ex}")
+                    return
+
+        # Delete after delay
         try:
             await message.delete()
-            logging.info(
-                f"Deleted PM message from {message.from_user.id} after 4 hours."
-            )
+            logging.info(f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h")
+
+            # Logging
+            if chat.type == "private" or LOG_GROUP_MESSAGES:
+                chat_type = "private" if chat.type == "private" else f"group ({chat.title})"
+                await send_log_message(client, user, msg_type, "deleted after delay", preview_text, chat_type)
+
         except Exception as e:
-            logging.warning(
-                f"Failed to delete message from {message.from_user.id}: {e}"
-            )
+            logging.warning(f"⚠️ Could not delete message from {user_name} ({user.id}): {e}")
 
     except Exception as e:
-        logging.error(f"Error in auto-delete task: {e}")
+        logging.error(f"❌ Error in auto-delete task: {e}")
+
+
+async def send_log_message(client, user, msg_type, status, preview_text, chat_type="private"):
+    """
+    Sends a detailed log entry to LOG_CHANNEL.
+    Includes file name and caption for media messages.
+    """
+    if not LOG_CHANNEL:
+        return
+
+    try:
+        user_link = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+        time_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        log_text = (
+            f"🧹 <b>Message Deleted</b>\n\n"
+            f"👤 User: {user_link} (<code>{user.id}</code>)\n"
+            f"💬 Type: <b>{msg_type}</b>\n"
+            f"⏱ Status: <i>{status}</i>\n"
+            f"🕒 Time: {time_now}\n"
+            f"📌 Chat: {chat_type}\n\n"
+            f"📄 Preview/File: <code>{preview_text}</code>"
+        )
+
+        await client.send_message(LOG_CHANNEL, log_text, disable_web_page_preview=True)
+        logging.info(f"📨 Logged deleted message from {user.id} to LOG_CHANNEL")
+
+    except Exception as e:
+        logging.warning(f"⚠️ Could not send log message: {e}")
 
 
 # ----------------------------
