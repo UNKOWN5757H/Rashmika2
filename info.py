@@ -71,9 +71,21 @@ auth_req_channels = environ.get("AUTH_REQ_CHANNELS", "-1001882874297")
 auth_channels = environ.get("AUTH_CHANNELS", "-1002055023335")
 
 AUTO_DELETE_DELAY_HOURS = int(os.getenv("AUTO_DELETE_DELAY_HOURS", 4))
-AUTO_DELETE_GROUPS = [int(x) for x in os.getenv("AUTO_DELETE_GROUPS", "-1002241869735").split()] if os.getenv("AUTO_DELETE_GROUPS") else []
-TRUSTED_USERS = [int(x) for x in os.getenv("TRUSTED_USERS", "2098589219").split()] if os.getenv("TRUSTED_USERS") else []
-LOG_GROUP_MESSAGES = os.getenv("LOG_GROUP_MESSAGES", "True").lower() in ["true", "1", "yes"]
+AUTO_DELETE_GROUPS = (
+    [int(x) for x in os.getenv("AUTO_DELETE_GROUPS", "-1002241869735").split()]
+    if os.getenv("AUTO_DELETE_GROUPS")
+    else []
+)
+TRUSTED_USERS = (
+    [int(x) for x in os.getenv("TRUSTED_USERS", "2098589219").split()]
+    if os.getenv("TRUSTED_USERS")
+    else []
+)
+LOG_GROUP_MESSAGES = os.getenv("LOG_GROUP_MESSAGES", "True").lower() in [
+    "true",
+    "1",
+    "yes",
+]
 
 # ============================
 # Payment Configuration
