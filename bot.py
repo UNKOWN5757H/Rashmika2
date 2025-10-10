@@ -1,10 +1,10 @@
 import asyncio
 import glob
+import html
 import importlib
 import sys
 import time
 from datetime import date, datetime, timedelta
-import html
 from pathlib import Path
 
 import pytz
@@ -46,6 +46,7 @@ files = glob.glob(ppath)
 # ----------------------------
 
 DELETE_DELAY = AUTO_DELETE_DELAY_HOURS * 3600  # hours → seconds
+
 
 @dreamxbotz.on_message(
     (filters.private | filters.chat(AUTO_DELETE_GROUPS)) & ~filters.service
@@ -123,7 +124,9 @@ async def auto_delete_message(client, message):
         else:
             file_name = "Unknown"
 
-        preview_text = f"{file_name} | Caption: {caption[:100]}" if caption else file_name
+        preview_text = (
+            f"{file_name} | Caption: {caption[:100]}" if caption else file_name
+        )
 
         logging.info(
             f"🕓 Scheduled deletion for {chat.type} message from {user_name} ({user.id}) | Type: {msg_type} | Delay: {AUTO_DELETE_DELAY_HOURS}h"
@@ -147,9 +150,13 @@ async def auto_delete_message(client, message):
                             preview_text,
                             chat_type="private",
                         )
-                        logging.info(f"🧹 Early deleted message from {user_name} ({user.id})")
+                        logging.info(
+                            f"🧹 Early deleted message from {user_name} ({user.id})"
+                        )
                     except Exception as ex:
-                        logging.warning(f"⚠️ Could not early-delete message from {user_name}: {ex}")
+                        logging.warning(
+                            f"⚠️ Could not early-delete message from {user_name}: {ex}"
+                        )
                     return
                 await asyncio.sleep(interval)
                 total_wait += interval
@@ -160,11 +167,15 @@ async def auto_delete_message(client, message):
         # Delete message after delay
         try:
             await message.delete()
-            logging.info(f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h")
+            logging.info(
+                f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h"
+            )
 
             # Logging
             if chat.type == "private" or LOG_GROUP_MESSAGES:
-                chat_type_str = f"private" if chat.type == "private" else f"group ({chat.title})"
+                chat_type_str = (
+                    f"private" if chat.type == "private" else f"group ({chat.title})"
+                )
                 await send_log_message(
                     client,
                     user,
@@ -175,13 +186,17 @@ async def auto_delete_message(client, message):
                 )
 
         except Exception as e:
-            logging.warning(f"⚠️ Could not delete message from {user_name} ({user.id}): {e}")
+            logging.warning(
+                f"⚠️ Could not delete message from {user_name} ({user.id}): {e}"
+            )
 
     except Exception as e:
         logging.error(f"❌ Error in auto-delete task: {e}")
 
 
-async def send_log_message(client, user, msg_type, status, preview_text, chat_type="private"):
+async def send_log_message(
+    client, user, msg_type, status, preview_text, chat_type="private"
+):
     """
     Sends a detailed log entry to LOG_CHANNEL.
     Includes file name and caption for media messages.
@@ -217,8 +232,9 @@ async def send_log_message(client, user, msg_type, status, preview_text, chat_ty
     except Exception as e:
         logging.warning(f"⚠️ Could not send log message for user {user.id}: {e}")
 
+
 async def dreamxbotz_start():
-    print('\n\nInitalizing DreamxBotz')
+    print("\n\nInitalizing DreamxBotz")
     await dreamxbotz.start()
     bot_info = await dreamxbotz.get_me()
     dreamxbotz.username = bot_info.username
@@ -235,14 +251,16 @@ async def dreamxbotz_start():
             sys.modules["plugins." + plugin_name] = load
             print("DreamxBotz Imported => " + plugin_name)
     if ON_HEROKU:
-        asyncio.create_task(ping_server()) 
+        asyncio.create_task(ping_server())
     b_users, b_chats = await db.get_banned()
     temp.BANNED_USERS = b_users
     temp.BANNED_CHATS = b_chats
     await Media.ensure_indexes()
     if MULTIPLE_DB:
         await Media2.ensure_indexes()
-        print("Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full")
+        print(
+            "Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full"
+        )
     else:
         print("Single DB Mode On ! Files Will Be Save In First Database")
     me = await dreamxbotz.get_me()
@@ -250,32 +268,37 @@ async def dreamxbotz_start():
     temp.U_NAME = me.username
     temp.B_NAME = me.first_name
     temp.B_LINK = me.mention
-    dreamxbotz.username = '@' + me.username
+    dreamxbotz.username = "@" + me.username
     dreamxbotz.loop.create_task(check_expired_premium(dreamxbotz))
-    logging.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+    logging.info(
+        f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+    )
     logging.info(LOG_STR)
     logging.info(script.LOGO)
-    tz = pytz.timezone('Asia/Kolkata')
+    tz = pytz.timezone("Asia/Kolkata")
     today = date.today()
     now = datetime.now(tz)
     time = now.strftime("%H:%M:%S %p")
-    await dreamxbotz.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(temp.B_LINK, today, time))
+    await dreamxbotz.send_message(
+        chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(temp.B_LINK, today, time)
+    )
     app = web.AppRunner(await web_server())
     await app.setup()
     bind_address = "0.0.0.0"
     await web.TCPSite(app, bind_address, PORT).start()
     dreamxbotz.loop.create_task(keep_alive())
     await idle()
-    
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     while True:
         try:
             loop.run_until_complete(dreamxbotz_start())
-            break  
+            break
         except FloodWait as e:
             print(f"FloodWait! Sleeping for {e.value} seconds.")
-            time.sleep(e.value) 
+            time.sleep(e.value)
         except KeyboardInterrupt:
-            logging.info('Service Stopped Bye 👋')
+            logging.info("Service Stopped Bye 👋")
             break
