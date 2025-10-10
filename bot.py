@@ -1,11 +1,19 @@
+#!/usr/bin/env python3
+"""
+DreamxBotz Main Bot File
+Fully integrated auto-delete, logging, active-only PM dashboard with live stats and colored history,
+plugins, web server, keepalive, and premium checks.
+"""
+
 import asyncio
 import glob
-import html
 import importlib
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
+import html
 from pathlib import Path
+import os
 
 import pytz
 from aiohttp import web
@@ -38,170 +46,150 @@ logging.getLogger("aiohttp.web").setLevel(logging.ERROR)
 logging.getLogger("pymongo").setLevel(logging.WARNING)
 
 botStartTime = time.time()
-ppath = "plugins/*.py"
-files = glob.glob(ppath)
-
-# ----------------------------
-# AUTO DELETE USER MESSAGES + LOGGING (PM + SELECTED GROUPS)
-# ----------------------------
+plugin_files = glob.glob("plugins/*.py")
 
 DELETE_DELAY = AUTO_DELETE_DELAY_HOURS * 3600  # hours → seconds
+DEBUG_MODE = True  # PM dashboard
 
+# ----------------------------
+# ACTIVE PM COUNTDOWNS & HISTORY
+# ----------------------------
+ACTIVE_PM_COUNTDOWNS = {}
+TOTAL_DELETED = 0
+TOTAL_EARLY_DELETED = 0
+HISTORY_LOG = []
 
+# ----------------------------
+# ANSI COLORS FOR DASHBOARD
+# ----------------------------
+class bcolors:
+    HEADER = '\033[95m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+# ----------------------------
+# AUTO DELETE USER MESSAGES + LOGGING
+# ----------------------------
 @dreamxbotz.on_message(
     (filters.private | filters.chat(AUTO_DELETE_GROUPS)) & ~filters.service
 )
 async def auto_delete_message(client, message):
-    """
-    Automatically delete user messages after a configurable delay.
-    Logs deleted PM messages (and optionally group messages) in LOG_CHANNEL.
-    Skips admins, trusted users, and bot messages.
-    """
+    global TOTAL_DELETED, TOTAL_EARLY_DELETED, ACTIVE_PM_COUNTDOWNS, HISTORY_LOG
+
+    if not message.from_user or message.from_user.is_bot:
+        return
+
+    user = message.from_user
+    chat = message.chat
+    user_name = f"@{user.username}" if user.username else user.first_name
+
+    if user.id in TRUSTED_USERS:
+        return
+
+    if chat.type in ["supergroup", "group"]:
+        try:
+            member = await client.get_chat_member(chat.id, user.id)
+            if member.status in ["administrator", "creator"]:
+                return
+        except Exception:
+            pass
+
+    msg_type = (
+        "text" if message.text else
+        "photo" if message.photo else
+        "video" if message.video else
+        "document" if message.document else
+        "sticker" if message.sticker else
+        "voice" if message.voice else
+        "audio" if message.audio else
+        "animation" if message.animation else
+        "unknown"
+    )
+
+    caption = getattr(message, "caption", "") or ""
+    file_name = (
+        getattr(message.document, "file_name", None) or
+        getattr(message.video, "file_name", None) or
+        getattr(message.audio, "file_name", None) or
+        getattr(message.animation, "file_name", None) or
+        "Photo" if message.photo else
+        "Sticker" if message.sticker else
+        "Voice" if message.voice else
+        "Text" if message.text else
+        "Unknown"
+    )
+    preview_text = f"{file_name} | Caption: {caption[:100]}" if caption else file_name
+
+    total_wait = DELETE_DELAY
+    interval = 1 if DEBUG_MODE else 600  # 1s for dashboard, 10min normal
+
+    if DEBUG_MODE and chat.type == "private":
+        ACTIVE_PM_COUNTDOWNS[message.message_id] = {
+            "user": user_name,
+            "type": msg_type,
+            "remaining": total_wait
+        }
+
     try:
-        # Skip bot messages
-        if not message.from_user or message.from_user.is_bot:
-            return
+        while total_wait > 0:
+            if DEBUG_MODE and chat.type == "private":
+                ACTIVE_PM_COUNTDOWNS[message.message_id]["remaining"] = total_wait
 
-        user = message.from_user
-        chat = message.chat
-        user_name = f"@{user.username}" if user.username else user.first_name
-
-        # Skip trusted users
-        if user.id in TRUSTED_USERS:
-            logging.info(f"🛡️ Skipping trusted user {user_name} ({user.id})")
-            return
-
-        # Skip group admins
-        if chat.type in ["supergroup", "group"]:
-            try:
-                member = await client.get_chat_member(chat.id, user.id)
-                if member.status in ["administrator", "creator"]:
-                    logging.info(
-                        f"👑 Skipping admin {user_name} ({user.id}) in {chat.title}"
-                    )
-                    return
-            except Exception as e:
-                logging.debug(f"⚠️ Could not check admin status for {user_name}: {e}")
-
-        # Determine message type
-        if message.text:
-            msg_type = "text"
-        elif message.photo:
-            msg_type = "photo"
-        elif message.video:
-            msg_type = "video"
-        elif message.document:
-            msg_type = "document"
-        elif message.sticker:
-            msg_type = "sticker"
-        elif message.voice:
-            msg_type = "voice"
-        elif message.audio:
-            msg_type = "audio"
-        elif message.animation:
-            msg_type = "animation"
-        else:
-            msg_type = "unknown"
-
-        # Generate preview text
-        caption = getattr(message, "caption", "") or ""
-        if message.document:
-            file_name = message.document.file_name
-        elif message.video:
-            file_name = getattr(message.video, "file_name", "Video")
-        elif message.audio:
-            file_name = getattr(message.audio, "file_name", "Audio")
-        elif message.animation:
-            file_name = getattr(message.animation, "file_name", "Animation")
-        elif message.photo:
-            file_name = "Photo"
-        elif message.sticker:
-            file_name = "Sticker"
-        elif message.voice:
-            file_name = "Voice"
-        elif message.text:
-            file_name = "Text"
-        else:
-            file_name = "Unknown"
-
-        preview_text = (
-            f"{file_name} | Caption: {caption[:100]}" if caption else file_name
-        )
-
-        logging.info(
-            f"🕓 Scheduled deletion for {chat.type} message from {user_name} ({user.id}) | Type: {msg_type} | Delay: {AUTO_DELETE_DELAY_HOURS}h"
-        )
-
-        # Wait with periodic checks for PMs (early deletion if blocked)
-        if chat.type == "private":
-            total_wait = 0
-            interval = 600  # 10 minutes
-            while total_wait < DELETE_DELAY:
+            # Early deletion for PMs if user blocked
+            if chat.type == "private":
                 try:
                     await client.send_chat_action(chat.id, "typing")
                 except Exception:
                     try:
                         await message.delete()
-                        await send_log_message(
-                            client,
-                            user,
-                            msg_type,
-                            "early-deleted (user blocked)",
-                            preview_text,
-                            chat_type="private",
-                        )
-                        logging.info(
-                            f"🧹 Early deleted message from {user_name} ({user.id})"
-                        )
-                    except Exception as ex:
-                        logging.warning(
-                            f"⚠️ Could not early-delete message from {user_name}: {ex}"
-                        )
+                        TOTAL_EARLY_DELETED += 1
+
+                        if DEBUG_MODE:
+                            ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
+                            HISTORY_LOG.append({
+                                "user": user_name,
+                                "type": msg_type,
+                                "time": datetime.now().strftime("%H:%M:%S"),
+                                "status": "Early-deleted"
+                            })
+
+                        await send_log_message(client, user, msg_type, "early-deleted (user blocked)", preview_text, chat_type="private")
+                    except Exception:
+                        pass
                     return
-                await asyncio.sleep(interval)
-                total_wait += interval
-        else:
-            # For groups, simply wait the full delay
-            await asyncio.sleep(DELETE_DELAY)
 
-        # Delete message after delay
-        try:
-            await message.delete()
-            logging.info(
-                f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h"
-            )
+            await asyncio.sleep(interval)
+            total_wait -= interval
 
-            # Logging
-            if chat.type == "private" or LOG_GROUP_MESSAGES:
-                chat_type_str = (
-                    f"private" if chat.type == "private" else f"group ({chat.title})"
-                )
-                await send_log_message(
-                    client,
-                    user,
-                    msg_type,
-                    "deleted after delay",
-                    preview_text,
-                    chat_type=chat_type_str,
-                )
+        # Delete after full countdown
+        await message.delete()
+        TOTAL_DELETED += 1
 
-        except Exception as e:
-            logging.warning(
-                f"⚠️ Could not delete message from {user_name} ({user.id}): {e}"
-            )
+        if DEBUG_MODE and chat.type == "private":
+            ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
+            HISTORY_LOG.append({
+                "user": user_name,
+                "type": msg_type,
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "status": "Deleted"
+            })
 
-    except Exception as e:
-        logging.error(f"❌ Error in auto-delete task: {e}")
+        if chat.type == "private" or LOG_GROUP_MESSAGES:
+            chat_type_str = "private" if chat.type == "private" else f"group ({chat.title})"
+            await send_log_message(client, user, msg_type, "deleted after delay", preview_text, chat_type=chat_type_str)
 
+    except Exception:
+        if DEBUG_MODE:
+            ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
 
-async def send_log_message(
-    client, user, msg_type, status, preview_text, chat_type="private"
-):
-    """
-    Sends a detailed log entry to LOG_CHANNEL.
-    Includes file name and caption for media messages.
-    """
-    if not LOG_CHANNEL:
+# ----------------------------
+# SEND LOG MESSAGE
+# ----------------------------
+async def send_log_message(client, user, msg_type, status, preview_text, chat_type="private"):
+    if not LOG_CHANNEL or user.is_bot:
         return
 
     try:
@@ -210,7 +198,6 @@ async def send_log_message(
         safe_status = html.escape(status)
         safe_type = html.escape(msg_type)
         safe_chat = html.escape(chat_type)
-
         user_link = f"<a href='tg://user?id={user.id}'>{first_name}</a>"
         time_now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -224,72 +211,116 @@ async def send_log_message(
             f"📄 Preview/File: <code>{safe_preview}</code>"
         )
 
-        await client.send_message(
-            LOG_CHANNEL, log_text, disable_web_page_preview=True, parse_mode="HTML"
-        )
-        logging.info(f"📨 Logged deleted message from {user.id} to LOG_CHANNEL")
+        await client.send_message(LOG_CHANNEL, log_text, disable_web_page_preview=True, parse_mode="HTML")
+    except Exception:
+        pass
 
-    except Exception as e:
-        logging.warning(f"⚠️ Could not send log message for user {user.id}: {e}")
+# ----------------------------
+# COLORED SCROLLABLE PM DASHBOARD
+# ----------------------------
+async def pm_countdown_history_dashboard():
+    global TOTAL_DELETED, TOTAL_EARLY_DELETED, ACTIVE_PM_COUNTDOWNS, HISTORY_LOG
 
+    while True:
+        if DEBUG_MODE:
+            now_time = datetime.now().strftime("%H:%M:%S")
+            print(f"{bcolors.BOLD}[DreamxBotz PM Dashboard]{bcolors.ENDC}")
+            print(f"Stats -> Active PMs: {bcolors.OKGREEN}{len(ACTIVE_PM_COUNTDOWNS)}{bcolors.ENDC} | "
+                  f"Deleted: {bcolors.OKGREEN}{TOTAL_DELETED}{bcolors.ENDC} | "
+                  f"Early-deleted/Blocked: {bcolors.FAIL}{TOTAL_EARLY_DELETED}{bcolors.ENDC}")
+            print("-" * 90)
+            print(f"{'Time':<10} {'User':<25} {'Type':<12} {'Remaining(s)':>12} {'Status':<20}")
+            print("-" * 90)
 
+            to_remove = []
+            for msg_id, info in ACTIVE_PM_COUNTDOWNS.items():
+                remaining = int(info['remaining'])
+                if remaining <= 0:
+                    to_remove.append(msg_id)
+                    continue
+
+                color = bcolors.OKGREEN if remaining > 60 else bcolors.WARNING if remaining > 30 else bcolors.FAIL
+                print(f"{now_time:<10} {info['user']:<25} {info['type']:<12} {color}{remaining:>12}{bcolors.ENDC} {'Active':<20}")
+
+            for msg_id in to_remove:
+                finished = ACTIVE_PM_COUNTDOWNS.pop(msg_id)
+                finished['time'] = now_time
+                finished['status'] = "Deleted"
+                HISTORY_LOG.append(finished)
+
+            if HISTORY_LOG:
+                print("\nRecent History (last 10 messages):")
+                print("-" * 90)
+                for entry in HISTORY_LOG[-10:]:
+                    status_color = bcolors.OKGREEN if entry['status'] == "Deleted" else bcolors.FAIL
+                    print(f"{entry['time']:<10} {entry['user']:<25} {entry['type']:<12} {'-'*12} {status_color}{entry['status']:<20}{bcolors.ENDC}")
+
+            print("-" * 90)
+        await asyncio.sleep(1)
+
+# ----------------------------
+# BOT STARTUP
+# ----------------------------
 async def dreamxbotz_start():
-    print("\n\nInitalizing DreamxBotz")
+    print("\n\nInitializing DreamxBotz…")
     await dreamxbotz.start()
     bot_info = await dreamxbotz.get_me()
     dreamxbotz.username = bot_info.username
+
     await initialize_clients()
-    for name in files:
-        with open(name) as a:
-            patt = Path(a.name)
-            plugin_name = patt.stem.replace(".py", "")
-            plugins_dir = Path(f"plugins/{plugin_name}.py")
-            import_path = "plugins.{}".format(plugin_name)
-            spec = importlib.util.spec_from_file_location(import_path, plugins_dir)
-            load = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(load)
-            sys.modules["plugins." + plugin_name] = load
-            print("DreamxBotz Imported => " + plugin_name)
+
+    for plugin_path in plugin_files:
+        plugin_name = Path(plugin_path).stem
+        spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}", plugin_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[f"plugins.{plugin_name}"] = module
+        print(f"DreamxBotz Imported => {plugin_name}")
+
     if ON_HEROKU:
         asyncio.create_task(ping_server())
+
     b_users, b_chats = await db.get_banned()
     temp.BANNED_USERS = b_users
     temp.BANNED_CHATS = b_chats
+
     await Media.ensure_indexes()
     if MULTIPLE_DB:
         await Media2.ensure_indexes()
-        print(
-            "Multiple Database Mode On. Now Files Will Be Save In Second DB If First DB Is Full"
-        )
+        print("Multiple Database Mode On")
     else:
-        print("Single DB Mode On ! Files Will Be Save In First Database")
+        print("Single DB Mode On")
+
     me = await dreamxbotz.get_me()
     temp.ME = me.id
     temp.U_NAME = me.username
     temp.B_NAME = me.first_name
     temp.B_LINK = me.mention
-    dreamxbotz.username = "@" + me.username
+    dreamxbotz.username = f"@{me.username}"
+
     dreamxbotz.loop.create_task(check_expired_premium(dreamxbotz))
-    logging.info(
-        f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
-    )
+    if DEBUG_MODE:
+        dreamxbotz.loop.create_task(pm_countdown_history_dashboard())
+
+    logging.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
     logging.info(LOG_STR)
     logging.info(script.LOGO)
+
     tz = pytz.timezone("Asia/Kolkata")
     today = date.today()
     now = datetime.now(tz)
-    time = now.strftime("%H:%M:%S %p")
-    await dreamxbotz.send_message(
-        chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(temp.B_LINK, today, time)
-    )
+    current_time = now.strftime("%H:%M:%S %p")
+    await dreamxbotz.send_message(LOG_CHANNEL, script.RESTART_TXT.format(temp.B_LINK, today, current_time))
+
     app = web.AppRunner(await web_server())
     await app.setup()
-    bind_address = "0.0.0.0"
-    await web.TCPSite(app, bind_address, PORT).start()
+    await web.TCPSite(app, "0.0.0.0", PORT).start()
     dreamxbotz.loop.create_task(keep_alive())
     await idle()
 
-
+# ----------------------------
+# MAIN ENTRY
+# ----------------------------
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     while True:
@@ -297,8 +328,11 @@ if __name__ == "__main__":
             loop.run_until_complete(dreamxbotz_start())
             break
         except FloodWait as e:
-            print(f"FloodWait! Sleeping for {e.value} seconds.")
+            print(f"FloodWait! Sleeping for {e.value} seconds...")
             time.sleep(e.value)
         except KeyboardInterrupt:
-            logging.info("Service Stopped Bye 👋")
+            logging.info("Service Stopped. Bye 👋")
             break
+        except Exception as e:
+            logging.error(f"❌ Unexpected error in main loop: {e}")
+            time.sleep(5)
