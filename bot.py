@@ -49,8 +49,7 @@ LOG_GROUP_MESSAGES = False  # Set False if you don't want group messages logged
 
 
 @dreamxbotz.on_message(
-    (filters.private | filters.chat(AUTO_DELETE_GROUPS))
-    & ~filters.service
+    (filters.private | filters.chat(AUTO_DELETE_GROUPS)) & ~filters.service
 )
 async def auto_delete_message(client, message):
     """
