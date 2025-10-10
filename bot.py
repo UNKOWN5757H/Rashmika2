@@ -7,13 +7,13 @@ plugins, web server, keepalive, and premium checks.
 
 import asyncio
 import glob
+import html
 import importlib
+import os
 import sys
 import time
 from datetime import date, datetime
-import html
 from pathlib import Path
-import os
 
 import pytz
 from aiohttp import web
@@ -59,16 +59,18 @@ TOTAL_DELETED = 0
 TOTAL_EARLY_DELETED = 0
 HISTORY_LOG = []
 
+
 # ----------------------------
 # ANSI COLORS FOR DASHBOARD
 # ----------------------------
 class bcolors:
-    HEADER = '\033[95m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
+    HEADER = "\033[95m"
+    OKGREEN = "\033[92m"
+    WARNING = "\033[93m"
+    FAIL = "\033[91m"
+    ENDC = "\033[0m"
+    BOLD = "\033[1m"
+
 
 # ----------------------------
 # AUTO DELETE USER MESSAGES + LOGGING
@@ -98,28 +100,48 @@ async def auto_delete_message(client, message):
             pass
 
     msg_type = (
-        "text" if message.text else
-        "photo" if message.photo else
-        "video" if message.video else
-        "document" if message.document else
-        "sticker" if message.sticker else
-        "voice" if message.voice else
-        "audio" if message.audio else
-        "animation" if message.animation else
-        "unknown"
+        "text"
+        if message.text
+        else (
+            "photo"
+            if message.photo
+            else (
+                "video"
+                if message.video
+                else (
+                    "document"
+                    if message.document
+                    else (
+                        "sticker"
+                        if message.sticker
+                        else (
+                            "voice"
+                            if message.voice
+                            else (
+                                "audio"
+                                if message.audio
+                                else "animation" if message.animation else "unknown"
+                            )
+                        )
+                    )
+                )
+            )
+        )
     )
 
     caption = getattr(message, "caption", "") or ""
     file_name = (
-        getattr(message.document, "file_name", None) or
-        getattr(message.video, "file_name", None) or
-        getattr(message.audio, "file_name", None) or
-        getattr(message.animation, "file_name", None) or
-        "Photo" if message.photo else
-        "Sticker" if message.sticker else
-        "Voice" if message.voice else
-        "Text" if message.text else
-        "Unknown"
+        getattr(message.document, "file_name", None)
+        or getattr(message.video, "file_name", None)
+        or getattr(message.audio, "file_name", None)
+        or getattr(message.animation, "file_name", None)
+        or "Photo"
+        if message.photo
+        else (
+            "Sticker"
+            if message.sticker
+            else "Voice" if message.voice else "Text" if message.text else "Unknown"
+        )
     )
     preview_text = f"{file_name} | Caption: {caption[:100]}" if caption else file_name
 
@@ -130,7 +152,7 @@ async def auto_delete_message(client, message):
         ACTIVE_PM_COUNTDOWNS[message.message_id] = {
             "user": user_name,
             "type": msg_type,
-            "remaining": total_wait
+            "remaining": total_wait,
         }
 
     try:
@@ -149,14 +171,23 @@ async def auto_delete_message(client, message):
 
                         if DEBUG_MODE:
                             ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
-                            HISTORY_LOG.append({
-                                "user": user_name,
-                                "type": msg_type,
-                                "time": datetime.now().strftime("%H:%M:%S"),
-                                "status": "Early-deleted"
-                            })
+                            HISTORY_LOG.append(
+                                {
+                                    "user": user_name,
+                                    "type": msg_type,
+                                    "time": datetime.now().strftime("%H:%M:%S"),
+                                    "status": "Early-deleted",
+                                }
+                            )
 
-                        await send_log_message(client, user, msg_type, "early-deleted (user blocked)", preview_text, chat_type="private")
+                        await send_log_message(
+                            client,
+                            user,
+                            msg_type,
+                            "early-deleted (user blocked)",
+                            preview_text,
+                            chat_type="private",
+                        )
                     except Exception:
                         pass
                     return
@@ -170,25 +201,39 @@ async def auto_delete_message(client, message):
 
         if DEBUG_MODE and chat.type == "private":
             ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
-            HISTORY_LOG.append({
-                "user": user_name,
-                "type": msg_type,
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "status": "Deleted"
-            })
+            HISTORY_LOG.append(
+                {
+                    "user": user_name,
+                    "type": msg_type,
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "status": "Deleted",
+                }
+            )
 
         if chat.type == "private" or LOG_GROUP_MESSAGES:
-            chat_type_str = "private" if chat.type == "private" else f"group ({chat.title})"
-            await send_log_message(client, user, msg_type, "deleted after delay", preview_text, chat_type=chat_type_str)
+            chat_type_str = (
+                "private" if chat.type == "private" else f"group ({chat.title})"
+            )
+            await send_log_message(
+                client,
+                user,
+                msg_type,
+                "deleted after delay",
+                preview_text,
+                chat_type=chat_type_str,
+            )
 
     except Exception:
         if DEBUG_MODE:
             ACTIVE_PM_COUNTDOWNS.pop(message.message_id, None)
 
+
 # ----------------------------
 # SEND LOG MESSAGE
 # ----------------------------
-async def send_log_message(client, user, msg_type, status, preview_text, chat_type="private"):
+async def send_log_message(
+    client, user, msg_type, status, preview_text, chat_type="private"
+):
     if not LOG_CHANNEL or user.is_bot:
         return
 
@@ -211,9 +256,12 @@ async def send_log_message(client, user, msg_type, status, preview_text, chat_ty
             f"📄 Preview/File: <code>{safe_preview}</code>"
         )
 
-        await client.send_message(LOG_CHANNEL, log_text, disable_web_page_preview=True, parse_mode="HTML")
+        await client.send_message(
+            LOG_CHANNEL, log_text, disable_web_page_preview=True, parse_mode="HTML"
+        )
     except Exception:
         pass
+
 
 # ----------------------------
 # COLORED SCROLLABLE PM DASHBOARD
@@ -225,38 +273,55 @@ async def pm_countdown_history_dashboard():
         if DEBUG_MODE:
             now_time = datetime.now().strftime("%H:%M:%S")
             print(f"{bcolors.BOLD}[DreamxBotz PM Dashboard]{bcolors.ENDC}")
-            print(f"Stats -> Active PMs: {bcolors.OKGREEN}{len(ACTIVE_PM_COUNTDOWNS)}{bcolors.ENDC} | "
-                  f"Deleted: {bcolors.OKGREEN}{TOTAL_DELETED}{bcolors.ENDC} | "
-                  f"Early-deleted/Blocked: {bcolors.FAIL}{TOTAL_EARLY_DELETED}{bcolors.ENDC}")
+            print(
+                f"Stats -> Active PMs: {bcolors.OKGREEN}{len(ACTIVE_PM_COUNTDOWNS)}{bcolors.ENDC} | "
+                f"Deleted: {bcolors.OKGREEN}{TOTAL_DELETED}{bcolors.ENDC} | "
+                f"Early-deleted/Blocked: {bcolors.FAIL}{TOTAL_EARLY_DELETED}{bcolors.ENDC}"
+            )
             print("-" * 90)
-            print(f"{'Time':<10} {'User':<25} {'Type':<12} {'Remaining(s)':>12} {'Status':<20}")
+            print(
+                f"{'Time':<10} {'User':<25} {'Type':<12} {'Remaining(s)':>12} {'Status':<20}"
+            )
             print("-" * 90)
 
             to_remove = []
             for msg_id, info in ACTIVE_PM_COUNTDOWNS.items():
-                remaining = int(info['remaining'])
+                remaining = int(info["remaining"])
                 if remaining <= 0:
                     to_remove.append(msg_id)
                     continue
 
-                color = bcolors.OKGREEN if remaining > 60 else bcolors.WARNING if remaining > 30 else bcolors.FAIL
-                print(f"{now_time:<10} {info['user']:<25} {info['type']:<12} {color}{remaining:>12}{bcolors.ENDC} {'Active':<20}")
+                color = (
+                    bcolors.OKGREEN
+                    if remaining > 60
+                    else bcolors.WARNING if remaining > 30 else bcolors.FAIL
+                )
+                print(
+                    f"{now_time:<10} {info['user']:<25} {info['type']:<12} {color}{remaining:>12}{bcolors.ENDC} {'Active':<20}"
+                )
 
             for msg_id in to_remove:
                 finished = ACTIVE_PM_COUNTDOWNS.pop(msg_id)
-                finished['time'] = now_time
-                finished['status'] = "Deleted"
+                finished["time"] = now_time
+                finished["status"] = "Deleted"
                 HISTORY_LOG.append(finished)
 
             if HISTORY_LOG:
                 print("\nRecent History (last 10 messages):")
                 print("-" * 90)
                 for entry in HISTORY_LOG[-10:]:
-                    status_color = bcolors.OKGREEN if entry['status'] == "Deleted" else bcolors.FAIL
-                    print(f"{entry['time']:<10} {entry['user']:<25} {entry['type']:<12} {'-'*12} {status_color}{entry['status']:<20}{bcolors.ENDC}")
+                    status_color = (
+                        bcolors.OKGREEN
+                        if entry["status"] == "Deleted"
+                        else bcolors.FAIL
+                    )
+                    print(
+                        f"{entry['time']:<10} {entry['user']:<25} {entry['type']:<12} {'-'*12} {status_color}{entry['status']:<20}{bcolors.ENDC}"
+                    )
 
             print("-" * 90)
         await asyncio.sleep(1)
+
 
 # ----------------------------
 # BOT STARTUP
@@ -271,7 +336,9 @@ async def dreamxbotz_start():
 
     for plugin_path in plugin_files:
         plugin_name = Path(plugin_path).stem
-        spec = importlib.util.spec_from_file_location(f"plugins.{plugin_name}", plugin_path)
+        spec = importlib.util.spec_from_file_location(
+            f"plugins.{plugin_name}", plugin_path
+        )
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         sys.modules[f"plugins.{plugin_name}"] = module
@@ -302,7 +369,9 @@ async def dreamxbotz_start():
     if DEBUG_MODE:
         dreamxbotz.loop.create_task(pm_countdown_history_dashboard())
 
-    logging.info(f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}.")
+    logging.info(
+        f"{me.first_name} with Pyrogram v{__version__} (Layer {layer}) started on {me.username}."
+    )
     logging.info(LOG_STR)
     logging.info(script.LOGO)
 
@@ -310,13 +379,16 @@ async def dreamxbotz_start():
     today = date.today()
     now = datetime.now(tz)
     current_time = now.strftime("%H:%M:%S %p")
-    await dreamxbotz.send_message(LOG_CHANNEL, script.RESTART_TXT.format(temp.B_LINK, today, current_time))
+    await dreamxbotz.send_message(
+        LOG_CHANNEL, script.RESTART_TXT.format(temp.B_LINK, today, current_time)
+    )
 
     app = web.AppRunner(await web_server())
     await app.setup()
     await web.TCPSite(app, "0.0.0.0", PORT).start()
     dreamxbotz.loop.create_task(keep_alive())
     await idle()
+
 
 # ----------------------------
 # MAIN ENTRY
