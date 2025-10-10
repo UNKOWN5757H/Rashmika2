@@ -79,22 +79,42 @@ async def auto_delete_message(client, message):
             try:
                 member = await client.get_chat_member(chat.id, user.id)
                 if member.status in ["administrator", "creator"]:
-                    logging.info(f"👑 Skipping admin {user_name} ({user.id}) in {chat.title}")
+                    logging.info(
+                        f"👑 Skipping admin {user_name} ({user.id}) in {chat.title}"
+                    )
                     return
             except Exception as e:
                 logging.warning(f"⚠️ Failed to check admin status for {user_name}: {e}")
 
         # Determine message type
         msg_type = (
-            "text" if message.text
-            else "photo" if message.photo
-            else "video" if message.video
-            else "document" if message.document
-            else "sticker" if message.sticker
-            else "voice" if message.voice
-            else "audio" if message.audio
-            else "animation" if message.animation
-            else "unknown"
+            "text"
+            if message.text
+            else (
+                "photo"
+                if message.photo
+                else (
+                    "video"
+                    if message.video
+                    else (
+                        "document"
+                        if message.document
+                        else (
+                            "sticker"
+                            if message.sticker
+                            else (
+                                "voice"
+                                if message.voice
+                                else (
+                                    "audio"
+                                    if message.audio
+                                    else "animation" if message.animation else "unknown"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
         )
 
         # File name or caption preview
@@ -144,30 +164,56 @@ async def auto_delete_message(client, message):
                 except Exception:
                     try:
                         await message.delete()
-                        await send_log_message(client, user, msg_type, "early-deleted (user blocked)", preview_text, chat_type="private")
-                        logging.info(f"🧹 Early deleted message from {user_name} ({user.id})")
+                        await send_log_message(
+                            client,
+                            user,
+                            msg_type,
+                            "early-deleted (user blocked)",
+                            preview_text,
+                            chat_type="private",
+                        )
+                        logging.info(
+                            f"🧹 Early deleted message from {user_name} ({user.id})"
+                        )
                     except Exception as ex:
-                        logging.warning(f"⚠️ Could not early-delete message from {user_name}: {ex}")
+                        logging.warning(
+                            f"⚠️ Could not early-delete message from {user_name}: {ex}"
+                        )
                     return
 
         # Delete after delay
         try:
             await message.delete()
-            logging.info(f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h")
+            logging.info(
+                f"✅ Deleted message from {user_name} ({user.id}) after {AUTO_DELETE_DELAY_HOURS}h"
+            )
 
             # Logging
             if chat.type == "private" or LOG_GROUP_MESSAGES:
-                chat_type = "private" if chat.type == "private" else f"group ({chat.title})"
-                await send_log_message(client, user, msg_type, "deleted after delay", preview_text, chat_type)
+                chat_type = (
+                    "private" if chat.type == "private" else f"group ({chat.title})"
+                )
+                await send_log_message(
+                    client,
+                    user,
+                    msg_type,
+                    "deleted after delay",
+                    preview_text,
+                    chat_type,
+                )
 
         except Exception as e:
-            logging.warning(f"⚠️ Could not delete message from {user_name} ({user.id}): {e}")
+            logging.warning(
+                f"⚠️ Could not delete message from {user_name} ({user.id}): {e}"
+            )
 
     except Exception as e:
         logging.error(f"❌ Error in auto-delete task: {e}")
 
 
-async def send_log_message(client, user, msg_type, status, preview_text, chat_type="private"):
+async def send_log_message(
+    client, user, msg_type, status, preview_text, chat_type="private"
+):
     """
     Sends a detailed log entry to LOG_CHANNEL.
     Includes file name and caption for media messages.
