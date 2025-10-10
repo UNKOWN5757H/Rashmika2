@@ -45,13 +45,12 @@ files = glob.glob(ppath)
 # ----------------------------
 
 DELETE_DELAY = AUTO_DELETE_DELAY_HOURS * 60 * 60  # hours → seconds
-LOG_GROUP_MESSAGES = True  # Set False if you don't want group messages logged
+LOG_GROUP_MESSAGES = False  # Set False if you don't want group messages logged
 
 
 @dreamxbotz.on_message(
     (filters.private | filters.chat(AUTO_DELETE_GROUPS))
     & ~filters.service
-    & ~filters.bot
 )
 async def auto_delete_message(client, message):
     """
@@ -62,7 +61,7 @@ async def auto_delete_message(client, message):
     """
     try:
         # Skip bot messages
-        if message.from_user and message.from_user.is_self:
+        if message.from_user and message.from_user:
             return
 
         user = message.from_user
